@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "8088:80"
+    volumes:
+      - /home/lool/Work/nginx_mcp/nginx-configs:/etc/nginx/conf.d:ro
+      - /home/lool/Work/nginx_mcp/logs:/var/log/nginx
+    restart: unless-stopped
+
+networks:
+  app-net:
+    driver: bridge
