@@ -107,7 +107,13 @@ def validate_nginx() -> list[TextContent]:
 
 
 def reload_nginx() -> list[TextContent]:
-    """Inform the user how to reload nginx — cannot signal another container without docker sock."""
+    # NOT FULLY IMPLEMENTED:
+    # Reloading nginx requires signalling the nginx master process in a separate
+    # container. This would need either:
+    #   (a) docker.sock mounted: -v /var/run/docker.sock:/var/run/docker.sock
+    #       then: docker exec nginx nginx -s reload
+    #   (b) Running mcp-server inside the nginx container (single container setup)
+    # For now, returns the manual command to run on the host.
     return ok({
         "note": "Run this on the host to reload nginx:",
         "command": "docker exec nginx nginx -s reload"
@@ -281,10 +287,13 @@ def block_ip(ip: str, filename: str = "default.conf") -> list[TextContent]:
 
 
 def nginx_status() -> list[TextContent]:
-    """
-    Read nginx stub_status endpoint if available, otherwise return process info.
-    Falls back to `ps` if stub_status isn't configured.
-    """
+    # NOT FULLY IMPLEMENTED:
+    # stub_status path requires two things not yet set up:
+    #   (a) A location block in nginx config:
+    #         location /nginx_status { stub_status; allow 127.0.0.1; deny all; }
+    #   (b) curl installed in this container (currently not present)
+    # The ps fallback below works but only shows process list, not real traffic stats.
+    # Full implementation: add stub_status location + install curl in Dockerfile.
     # Try stub_status (requires stub_status module + location block)
     try:
         result = subprocess.run(
