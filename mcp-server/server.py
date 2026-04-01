@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import json
 import os
-import re
 import shutil
 import subprocess
 import urllib.request
@@ -22,7 +21,7 @@ NGINX_LOG_DIR   = Path(os.getenv("NGINX_LOG_DIR",  "/var/log/nginx"))
 BACKUP_DIR      = Path(os.getenv("NGINX_BACKUP_DIR", "/etc/nginx/backups"))
 NGINX_VTS_URL   = os.getenv("NGINX_VTS_URL", "http://nginx:8080/status/format/json")
 
-BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+BACKUP_DIR.mkdir(parents=True, exist_ok=True)  # backups live inside container — lost on restart
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -129,45 +128,6 @@ def tail_logs(log: str = "access", lines: int = 50) -> list[TextContent]:
         return err("tail timed out")
 
 
-def list_blocked_ips() -> list[TextContent]:
-    deny_re = re.compile(r'\bdeny\s+([\d./a-fA-F:]+);')
-    seen, unique = set(), []
-    for conf_file in sorted(NGINX_CONF_DIR.rglob("*.conf")):
-        try:
-            for match in deny_re.finditer(conf_file.read_text()):
-                ip = match.group(1)
-                if ip != "all" and ip not in seen:
-                    seen.add(ip)
-                    unique.append({"ip": ip, "file": str(conf_file.relative_to(NGINX_CONF_DIR))})
-        except OSError:
-            continue
-    return ok({"blocked_ips": unique, "count": len(unique)})
-
-
-def block_ip(ip: str, filename: str = "default.conf") -> list[TextContent]:
-    if not re.match(r'^[\d./a-fA-F:]+$', ip):
-        return err(f"Invalid IP address: {ip}")
-    try:
-        path = safe_path(filename)
-        if not path.exists():
-            return err(f"File not found: {filename}")
-        content = path.read_text()
-        if f"deny {ip};" in content:
-            return ok({"blocked": False, "reason": f"{ip} is already denied in {filename}"})
-        new_content = re.sub(r'(server\s*\{)', rf'\1\n    deny {ip};', content)
-        if new_content == content:
-            return err("Could not find a server{} block to insert deny rule into")
-        result_data = json.loads(write_nginx_config(filename, new_content)[0].text)
-        return ok({
-            "blocked": result_data.get("written", False),
-            "ip": ip,
-            "file": filename,
-            "backup": result_data.get("backup"),
-            "error": result_data.get("reason") if not result_data.get("written") else None,
-        })
-    except ValueError as e:
-        return err(str(e))
-
 def nginx_status() -> list[TextContent]:
     try:
         with urllib.request.urlopen(NGINX_VTS_URL, timeout=5) as resp:
@@ -178,6 +138,8 @@ def nginx_status() -> list[TextContent]:
     except Exception as e:
         return err(f"Could not reach VTS endpoint: {e}")
 
+# TODO: reload_nginx — trigger nginx -s reload via docker exec (needs Docker socket mount)
+# TODO: block_ip — add deny rules (needs decision on persistence strategy across restarts)
 
 # ── MCP wiring ─────────────────────────────────────────────────────────────────
 
@@ -190,8 +152,6 @@ TOOLS = [
     Tool(name="validate_nginx",     description="Run nginx -t to check config syntax.", inputSchema={"type": "object", "properties": {}, "required": []}),
     Tool(name="backup_config",      description="Backup a config file with a UTC timestamp.", inputSchema={"type": "object", "properties": {"filename": {"type": "string"}}, "required": ["filename"]}),
     Tool(name="tail_logs",          description="Return last N lines of access or error log.", inputSchema={"type": "object", "properties": {"log": {"type": "string", "enum": ["access", "error"], "default": "access"}, "lines": {"type": "integer", "default": 50, "minimum": 1, "maximum": 500}}, "required": []}),
-    Tool(name="list_blocked_ips",   description="Scan nginx configs for deny rules.", inputSchema={"type": "object", "properties": {}, "required": []}),
-    Tool(name="block_ip",           description="Add deny rule for an IP/CIDR. Uses write pipeline.", inputSchema={"type": "object", "properties": {"ip": {"type": "string"}, "filename": {"type": "string", "default": "default.conf"}}, "required": ["ip"]}),
     Tool(name="nginx_status",       description="Fetch live nginx traffic stats from VTS (requests, bytes, connections, response codes per zone).", inputSchema={"type": "object", "properties": {}, "required": []}),
 ]
 
@@ -208,8 +168,6 @@ async def handle_call_tool(name: str, arguments: dict):
         case "validate_nginx":     return validate_nginx()
         case "backup_config":      return backup_config(arguments["filename"])
         case "tail_logs":          return tail_logs(arguments.get("log", "access"), arguments.get("lines", 50))
-        case "list_blocked_ips":   return list_blocked_ips()
-        case "block_ip":           return block_ip(arguments["ip"], arguments.get("filename", "default.conf"))
         case "nginx_status":       return nginx_status()
         case _:                    return err(f"Unknown tool: {name}")
 
@@ -232,3 +190,4 @@ app = Starlette(
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("MCP_PORT", "8000")))
+
