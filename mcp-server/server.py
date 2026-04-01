@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -16,9 +17,10 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-NGINX_CONF_DIR = Path(os.getenv("NGINX_CONF_DIR", "/etc/nginx/conf.d"))
-NGINX_LOG_DIR  = Path(os.getenv("NGINX_LOG_DIR",  "/var/log/nginx"))
-BACKUP_DIR     = Path(os.getenv("NGINX_BACKUP_DIR", "/etc/nginx/backups"))
+NGINX_CONF_DIR  = Path(os.getenv("NGINX_CONF_DIR", "/etc/nginx/conf.d"))
+NGINX_LOG_DIR   = Path(os.getenv("NGINX_LOG_DIR",  "/var/log/nginx"))
+BACKUP_DIR      = Path(os.getenv("NGINX_BACKUP_DIR", "/etc/nginx/backups"))
+NGINX_VTS_URL   = os.getenv("NGINX_VTS_URL", "http://nginx:8080/status/format/json")
 
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -166,6 +168,17 @@ def block_ip(ip: str, filename: str = "default.conf") -> list[TextContent]:
     except ValueError as e:
         return err(str(e))
 
+def nginx_status() -> list[TextContent]:
+    try:
+        with urllib.request.urlopen(NGINX_VTS_URL, timeout=5) as resp:
+            data = json.loads(resp.read())
+        s = data.get("serverZones", {})
+        totals = {zone: {"requests": v.get("requestCounter", 0), "in_bytes": v.get("inBytes", 0), "out_bytes": v.get("outBytes", 0), "responses": v.get("responses", {})} for zone, v in s.items()}
+        return ok({"nginx_version": data.get("nginxVersion"), "now": data.get("nowMsec"), "connections": data.get("connections", {}), "server_zones": totals})
+    except Exception as e:
+        return err(f"Could not reach VTS endpoint: {e}")
+
+
 # ── MCP wiring ─────────────────────────────────────────────────────────────────
 
 server = Server("nginx-manager")
@@ -179,6 +192,7 @@ TOOLS = [
     Tool(name="tail_logs",          description="Return last N lines of access or error log.", inputSchema={"type": "object", "properties": {"log": {"type": "string", "enum": ["access", "error"], "default": "access"}, "lines": {"type": "integer", "default": 50, "minimum": 1, "maximum": 500}}, "required": []}),
     Tool(name="list_blocked_ips",   description="Scan nginx configs for deny rules.", inputSchema={"type": "object", "properties": {}, "required": []}),
     Tool(name="block_ip",           description="Add deny rule for an IP/CIDR. Uses write pipeline.", inputSchema={"type": "object", "properties": {"ip": {"type": "string"}, "filename": {"type": "string", "default": "default.conf"}}, "required": ["ip"]}),
+    Tool(name="nginx_status",       description="Fetch live nginx traffic stats from VTS (requests, bytes, connections, response codes per zone).", inputSchema={"type": "object", "properties": {}, "required": []}),
 ]
 
 @server.list_tools()
@@ -196,6 +210,7 @@ async def handle_call_tool(name: str, arguments: dict):
         case "tail_logs":          return tail_logs(arguments.get("log", "access"), arguments.get("lines", 50))
         case "list_blocked_ips":   return list_blocked_ips()
         case "block_ip":           return block_ip(arguments["ip"], arguments.get("filename", "default.conf"))
+        case "nginx_status":       return nginx_status()
         case _:                    return err(f"Unknown tool: {name}")
 
 # ── HTTP Streamable transport ──────────────────────────────────────────────────
