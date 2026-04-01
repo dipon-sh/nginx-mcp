@@ -22,7 +22,7 @@
 │  │  │  :8088 → :80     │  │   python:3.12    │             │    │
 │  │  │  (internal :8080)│  │   :8000/mcp/     │             │    │
 │  │  │                  │  │   server.py      │             │    │
-│  │  │  serves HTTP     │  │   9 MCP tools    │             │    │
+│  │  │  serves HTTP     │  │   7 MCP tools    │             │    │
 │  │  │  rate limiting   │  │                  │             │    │
 │  │  │  VTS metrics     │◄─┤  nginx_status ─► │             │    │
 │  │  └────────┬─────────┘  └────────┬─────────┘             │    │
@@ -51,11 +51,12 @@
 | Port | Service | Purpose |
 |------|---------|---------|
 | `:8088` | nginx | Serves real HTTP traffic |
+| `:8080` | nginx VTS | Live metrics dashboard (`http://localhost:8080/status`) |
 | `:8000/mcp/` | mcp-server | AI clients connect here (HTTP Streamable) |
 | `:9090` | prometheus | Metrics storage & query UI |
 | `:3000` | grafana | Dashboard visualization (admin/admin) |
 
-> nginx port 8080 is **internal only** (not exposed to host) — only prometheus and mcp-server reach it.
+> nginx port 8080 is bound to `127.0.0.1` only — localhost accessible, not network-exposed.
 
 ---
 
@@ -78,7 +79,8 @@ Grafana visualizes dashboards
 
 ---
 
-## MCP Tools
+## MCP Tools (7)
+
 
 | Tool | Description |
 |------|-------------|
@@ -88,8 +90,6 @@ Grafana visualizes dashboards
 | `validate_nginx` | Run `nginx -t` syntax check |
 | `backup_config` | Timestamped backup of a config file |
 | `tail_logs` | Read last N lines of access or error log |
-| `list_blocked_ips` | Scan configs for `deny` rules |
-| `block_ip` | Add `deny <ip>` via safe write pipeline |
 | `nginx_status` | Live traffic stats from VTS (requests, bytes, connections, response codes per zone) |
 
 ---
