@@ -6,6 +6,7 @@ services:
     container_name: nginx
     ports:
       - "8088:80"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./nginx-configs:/etc/nginx/conf.d:ro
       - ./logs:/var/log/nginx
