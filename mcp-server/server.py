@@ -13,9 +13,7 @@ from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import TextContent, Tool
 from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.routing import Route
+from starlette.routing import Mount
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 NGINX_CONF_DIR = Path(os.getenv("NGINX_CONF_DIR", "/etc/nginx/conf.d"))
@@ -209,12 +207,12 @@ async def lifespan(app):
     async with session_manager.run():
         yield
 
-async def handle_mcp(request: Request) -> Response:
-    return await session_manager.handle_request(request.scope, request.receive, request._send)
+async def handle_mcp(scope, receive, send):
+    await session_manager.handle_request(scope, receive, send)
 
 app = Starlette(
     lifespan=lifespan,
-    routes=[Route("/mcp", endpoint=handle_mcp, methods=["GET", "POST", "DELETE"])],
+    routes=[Mount("/mcp", app=handle_mcp)],
 )
 
 if __name__ == "__main__":
