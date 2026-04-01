@@ -4,25 +4,25 @@
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    Machine                          │
-│                                                     │
+│                    Your Machine                      │
+│                                                      │
 │  ┌─────────────┐      ┌──────────────────────────┐  │
-│  │ Copilot CLI │      │     Claude Desktop       │  │
-│  │             │      │  (+ n8n-mcp also here)   │  │
+│  │ Copilot CLI │      │     Claude Desktop        │  │
+│  │             │      │  (+ n8n-mcp also here)    │  │
 │  └──────┬──────┘      └────────────┬─────────────┘  │
-│         │                          │                │
-│         └──────────┬───────────────┘                │
-│                    │ HTTP/SSE                       │
-│                    ▼                                │
+│         │                          │                 │
+│         └──────────┬───────────────┘                 │
+│                    │ HTTP Streamable (MCP 2025-11-25) │
+│                    ▼                                 │
 │  ┌─────────────────────────────────────────────┐    │
-│  │         Docker Compose                      │    │
-│  │                                             │    │
+│  │              Docker Compose                  │    │
+│  │                                              │    │
 │  │  ┌─────────────────┐  ┌──────────────────┐  │    │
-│  │  │   nginx:alpine  │  │  nginx-mcp       │  │    │
-│  │  │   :8088 → :80   │  │  python:3.12     │  │    │
-│  │  │                 │  │  :8000 (SSE)     │  │    │
-│  │  │  serves HTTP    │  │  server.py       │  │    │
-│  │  │  rate limiting  │  │  10 MCP tools    │  │    │
+│  │  │   nginx:alpine  │  │   nginx-mcp      │  │    │
+│  │  │   :8088 → :80   │  │   python:3.12    │  │    │
+│  │  │                 │  │   :8000/mcp/     │  │    │
+│  │  │  serves HTTP    │  │   server.py      │  │    │
+│  │  │  rate limiting  │  │   8 MCP tools    │  │    │
 │  │  └────────┬────────┘  └────────┬─────────┘  │    │
 │  │           │                    │             │    │
 │  │           └────────┬───────────┘             │    │
@@ -50,24 +50,22 @@
 | Port | Service | Purpose |
 |------|---------|---------|
 | `:8088` | nginx | Serves real HTTP traffic |
-| `:8000` | mcp-server | AI clients connect here (SSE) |
+| `:8000/mcp/` | mcp-server | AI clients connect here (HTTP Streamable) |
 
 ---
 
 ## MCP Tools
 
-| Tool | Status | Description |
-|------|--------|-------------|
-| `list_nginx_configs` | ✅ Full | List all config files |
-| `read_nginx_config` | ✅ Full | Read a config file |
-| `write_nginx_config` | ✅ Full | backup → validate → write pipeline |
-| `validate_nginx` | ✅ Full | Run `nginx -t` syntax check |
-| `backup_config` | ✅ Full | Timestamped backup before changes |
-| `tail_logs` | ✅ Full | Read last N lines of access/error log |
-| `list_blocked_ips` | ✅ Full | Scan configs for `deny` rules |
-| `block_ip` | ✅ Full | Add `deny <ip>` via safe write pipeline |
-| `reload_nginx` | ⚠️ Partial | Returns host command — needs docker.sock to auto-reload |
-| `nginx_status` | ⚠️ Partial | ps fallback — needs stub_status location block for full stats |
+| Tool | Description |
+|------|-------------|
+| `list_nginx_configs` | List all config files |
+| `read_nginx_config` | Read a config file |
+| `write_nginx_config` | backup → validate (nginx -t) → write, auto-rollback on failure |
+| `validate_nginx` | Run `nginx -t` syntax check |
+| `backup_config` | Timestamped backup of a config file |
+| `tail_logs` | Read last N lines of access or error log |
+| `list_blocked_ips` | Scan configs for `deny` rules |
+| `block_ip` | Add `deny <ip>` via safe write pipeline |
 
 ---
 
@@ -100,10 +98,10 @@ nginx_mcp/
 │       ├── health         ← returns "ok"
 │       └── index          ← returns "nginx is up and running!"
 ├── mcp-server/
-│   ├── server.py          ← 10 MCP tools, HTTP/SSE transport
+│   ├── server.py          ← 8 MCP tools, HTTP Streamable transport
 │   ├── Dockerfile         ← python:3.12-slim + nginx + procps
 │   └── requirements.txt   ← mcp, uvicorn, starlette
-└── logs/                  ← persisted access.log + error.log
+└── logs/                  ← persisted access.log + error.log (gitignored)
 ```
 
 ---
@@ -115,7 +113,8 @@ nginx_mcp/
 {
   "mcpServers": {
     "nginx-manager": {
-      "url": "http://localhost:8000/sse"
+      "type": "http",
+      "url": "http://localhost:8000/mcp/"
     }
   }
 }
@@ -126,7 +125,8 @@ nginx_mcp/
 {
   "mcpServers": {
     "nginx-manager": {
-      "url": "http://localhost:8000/sse"
+      "type": "http",
+      "url": "http://localhost:8000/mcp/"
     }
   }
 }
