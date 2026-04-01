@@ -7,8 +7,22 @@ services:
     ports:
       - "8088:80"
     volumes:
-      - /home/lool/Work/nginx_mcp/nginx-configs:/etc/nginx/conf.d:ro
-      - /home/lool/Work/nginx_mcp/logs:/var/log/nginx
+      - ./nginx-configs:/etc/nginx/conf.d:ro
+      - ./logs:/var/log/nginx
+    restart: unless-stopped
+
+  mcp-server:
+    build: ./mcp-server
+    container_name: nginx-mcp
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./nginx-configs:/etc/nginx/conf.d
+      - ./logs:/var/log/nginx
+    environment:
+      - NGINX_CONF_DIR=/etc/nginx/conf.d
+      - NGINX_LOG_DIR=/var/log/nginx
+      - MCP_PORT=8000
     restart: unless-stopped
 
 networks:

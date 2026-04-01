@@ -17,7 +17,6 @@ from pathlib import Path
 
 # ── MCP SDK ────────────────────────────────────────────────────────────────────
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -475,11 +474,31 @@ async def handle_call_tool(name: str, arguments: dict):
             return err(f"Unknown tool: {name}")
 
 
-async def main():
-    async with stdio_server() as streams:
+# ── HTTP/SSE transport ─────────────────────────────────────────────────────────
+import uvicorn
+from mcp.server.sse import SseServerTransport
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.routing import Mount, Route
+
+
+sse_transport = SseServerTransport("/messages/")
+
+
+async def handle_sse(request: Request):
+    async with sse_transport.connect_sse(
+        request.scope, request.receive, request._send
+    ) as streams:
         await server.run(streams[0], streams[1], server.create_initialization_options())
 
 
+app = Starlette(
+    routes=[
+        Route("/sse", endpoint=handle_sse),
+        Mount("/messages/", app=sse_transport.handle_post_message),
+    ]
+)
+
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    port = int(os.getenv("MCP_PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
